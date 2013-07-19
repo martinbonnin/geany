@@ -69,12 +69,12 @@ ParseData;
 MessageWindow msgwindow;
 
 
-static void prepare_msg_tree_view(void);
 static void prepare_status_tree_view(void);
 static void prepare_compiler_tree_view(void);
 static GtkWidget *create_message_popup_menu(gint type);
 static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *event,
 																			gpointer user_data);
+static gboolean on_msgwin_key_press_event(GtkWidget *widget, GdkEventKey *event, gpointer data);
 static void on_scribble_populate(GtkTextView *textview, GtkMenu *arg1, gpointer user_data);
 void msgwin_msg_add_markup_no_validate(gint line, GeanyDocument *doc, const gchar *doc_filename,
 												const gchar *markup);
@@ -98,19 +98,92 @@ void msgwin_set_messages_dir(const gchar *messages_dir)
 	msgwindow.messages_dir = g_strdup(messages_dir);
 }
 
+void msgwin_add_page(const gchar *tab_label)
+{
+	GtkWidget *window;
+	GtkWidget *treeview;
+	GtkWidget *label;
+	GtkListStore *store;
+	GtkCellRenderer *renderer;
+	GtkTreeViewColumn *column;
+	GtkTreeSelection *selection;
+
+	window = gtk_widget_new(GTK_TYPE_SCROLLED_WINDOW, "visible", TRUE, 
+								"can-focus", TRUE, 
+								"hscrollbar-policy", GTK_POLICY_AUTOMATIC,
+								"vscrollbar-policy", GTK_POLICY_AUTOMATIC,
+								NULL);
+	treeview = gtk_widget_new(GTK_TYPE_TREE_VIEW, "visible", TRUE, 
+								"can-focus", FALSE,
+								"headers-visible", FALSE,
+								"rules_hint", TRUE,
+								NULL);
+	label = gtk_widget_new(GTK_TYPE_LABEL, "visible", TRUE, 
+								"can-focus", FALSE,
+								"label", tab_label,
+								NULL);
+
+	/* line, doc, doc_filename, markup */
+	store = gtk_list_store_new(4, G_TYPE_INT, G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING);
+
+	gtk_tree_view_set_model(GTK_TREE_VIEW(treeview), GTK_TREE_MODEL(store));
+	g_object_unref(store);
+
+	renderer = gtk_cell_renderer_text_new();
+	column = gtk_tree_view_column_new_with_attributes(NULL, renderer,
+		"markup", STORE_MSG_MARKUP_INDEX, NULL);
+	gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+
+	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(treeview), FALSE);
+
+	ui_widget_modify_font_from_string(treeview, interface_prefs.msgwin_font);
+
+	/* use button-release-event so the selection has changed
+	 * (connect_after button-press-event doesn't work) */
+	g_signal_connect(treeview, "button-release-event",
+					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+	/* for double-clicking only, after the first release */
+	g_signal_connect(treeview, "button-press-event",
+					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+	g_signal_connect(treeview, "key-press-event",
+		G_CALLBACK(on_msgwin_key_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+
+	/* selection handling */
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeview));
+	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
+	/*g_signal_connect(selection, "changed",G_CALLBACK(on_msg_tree_selection_changed), NULL);*/
+
+	gtk_container_add(GTK_CONTAINER(window), treeview);
+	gtk_notebook_append_page(GTK_NOTEBOOK(msgwindow.msg_notebook), window, label);
+
+	/* goto last page */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);
+	
+	/* do not open too many (XXX: add a setting for that) */
+	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 10) {
+		gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), 0); 
+	}
+
+	/* remember global values */
+	msgwindow.tree_msg = treeview;
+	msgwindow.store_msg = store;
+}
 
 void msgwin_init(void)
 {
 	msgwindow.notebook = ui_lookup_widget(main_widgets.window, "notebook_info");
 	msgwindow.tree_status = ui_lookup_widget(main_widgets.window, "treeview3");
-	msgwindow.tree_msg = ui_lookup_widget(main_widgets.window, "treeview4");
+	msgwindow.msg_notebook = ui_lookup_widget(main_widgets.window, "notebook_msg");
 	msgwindow.tree_compiler = ui_lookup_widget(main_widgets.window, "treeview5");
 	msgwindow.scribble = ui_lookup_widget(main_widgets.window, "textview_scribble");
 	msgwindow.messages_dir = NULL;
 
 	prepare_status_tree_view();
-	prepare_msg_tree_view();
 	prepare_compiler_tree_view();
+
+	/* add the default message treeview */
+	msgwin_add_page(_("Messages"));
+
 	msgwindow.popup_status_menu = create_message_popup_menu(MSG_STATUS);
 	msgwindow.popup_msg_menu = create_message_popup_menu(MSG_MESSAGE);
 	msgwindow.popup_compiler_menu = create_message_popup_menu(MSG_COMPILER);
@@ -171,46 +244,6 @@ static void prepare_status_tree_view(void)
 	g_signal_connect(msgwindow.tree_status, "button-press-event",
 				G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_STATUS));
 }
-
-
-/* does some preparing things to the message list widget
- * (currently used for showing results of 'Find usage') */
-static void prepare_msg_tree_view(void)
-{
-	GtkCellRenderer *renderer;
-	GtkTreeViewColumn *column;
-	GtkTreeSelection *selection;
-
-	/* line, doc, doc_filename, markup */
-	msgwindow.store_msg = gtk_list_store_new(4, G_TYPE_INT, G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING);
-	gtk_tree_view_set_model(GTK_TREE_VIEW(msgwindow.tree_msg), GTK_TREE_MODEL(msgwindow.store_msg));
-	g_object_unref(msgwindow.store_msg);
-
-	renderer = gtk_cell_renderer_text_new();
-	column = gtk_tree_view_column_new_with_attributes(NULL, renderer,
-		"markup", STORE_MSG_MARKUP_INDEX, NULL);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(msgwindow.tree_msg), column);
-
-	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(msgwindow.tree_msg), FALSE);
-
-	ui_widget_modify_font_from_string(msgwindow.tree_msg, interface_prefs.msgwin_font);
-
-	/* use button-release-event so the selection has changed
-	 * (connect_after button-press-event doesn't work) */
-	g_signal_connect(msgwindow.tree_msg, "button-release-event",
-					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-	/* for double-clicking only, after the first release */
-	g_signal_connect(msgwindow.tree_msg, "button-press-event",
-					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-	g_signal_connect(msgwindow.tree_msg, "key-press-event",
-		G_CALLBACK(on_msgwin_key_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-
-	/* selection handling */
-	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(msgwindow.tree_msg));
-	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
-	/*g_signal_connect(selection, "changed",G_CALLBACK(on_msg_tree_selection_changed), NULL);*/
-}
-
 
 /* does some preparing things to the compiler list widget */
 static void prepare_compiler_tree_view(void)

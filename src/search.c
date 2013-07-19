@@ -1722,7 +1722,7 @@ search_find_in_files(const gchar *utf8_search_text, const gchar *dir, const gcha
 		return FALSE;
 	}
 
-	gtk_list_store_clear(msgwindow.store_msg);
+	msgwin_add_page(utf8_search_text);
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.notebook), MSG_MESSAGE);
 
 	if (! g_spawn_async_with_pipes(dir, (gchar**)argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD,

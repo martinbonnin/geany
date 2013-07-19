@@ -62,6 +62,7 @@ typedef struct
 	GtkWidget		*popup_compiler_menu;
 	GtkWidget		*notebook;
 	gchar			*messages_dir;
+	GtkWidget		*msg_notebook;
 } MessageWindow;
 
 extern MessageWindow msgwindow;
@@ -106,6 +107,8 @@ void msgwin_parse_compiler_error_line(const gchar *string, const gchar *dir,
 									  gchar **filename, gint *line);
 
 gboolean msgwin_goto_messages_file_line(gboolean focus_editor);
+
+void msgwin_add_page(const gchar *tab_label);
 
 G_END_DECLS
 

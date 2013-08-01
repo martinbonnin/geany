@@ -55,6 +55,10 @@
 #define STORE_MSG_DOC_FILENAME_INDEX	2
 #define STORE_MSG_MARKUP_INDEX			3
 
+#define MSGWIN_BUTTON_LEFT    1
+#define MSGWIN_BUTTON_MIDDLE  2
+#define MSGWIN_BUTTON_RIGHT   3
+
 /* used for parse_file_line */
 typedef struct
 {
@@ -98,7 +102,7 @@ void msgwin_set_messages_dir(const gchar *messages_dir)
 	msgwindow.messages_dir = g_strdup(messages_dir);
 }
 
-void msgwin_add_page(const gchar *tab_label)
+void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 {
 	GtkWidget *window;
 	GtkWidget *treeview;
@@ -160,11 +164,13 @@ void msgwin_add_page(const gchar *tab_label)
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);
 	
 	/* do not open too many (XXX: add a setting for that) */
-	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 10) {
+	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 50) {
 		gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), 0); 
 	}
 
 	/* remember global values */
+	g_free(msgwindow.messages_dir);
+	msgwindow.messages_dir = g_strdup(messages_dir);
 	msgwindow.tree_msg = treeview;
 	msgwindow.store_msg = store;
 }
@@ -182,7 +188,7 @@ void msgwin_init(void)
 	prepare_compiler_tree_view();
 
 	/* add the default message treeview */
-	msgwin_add_page(_("Messages"));
+	msgwin_add_page(_("Messages"), NULL);
 
 	msgwindow.popup_status_menu = create_message_popup_menu(MSG_STATUS);
 	msgwindow.popup_msg_menu = create_message_popup_menu(MSG_MESSAGE);
@@ -1400,7 +1406,7 @@ static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *
 	/* user_data might be NULL, GPOINTER_TO_INT returns 0 if called with NULL */
 	gboolean double_click = event->type == GDK_2BUTTON_PRESS;
 
-	if (event->button == 1 && (event->type == GDK_BUTTON_RELEASE || double_click))
+	if (event->button == MSGWIN_BUTTON_LEFT && (event->type == GDK_BUTTON_RELEASE || double_click))
 	{
 		switch (GPOINTER_TO_INT(user_data))
 		{
@@ -1418,7 +1424,7 @@ static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *
 		return double_click;	/* TRUE prevents message window re-focusing */
 	}
 
-	if (event->button == 3)
+	if (event->button == MSGWIN_BUTTON_RIGHT)
 	{	/* popupmenu to hide or clear the active treeview */
 		switch (GPOINTER_TO_INT(user_data))
 		{

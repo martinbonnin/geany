@@ -108,7 +108,7 @@ void msgwin_parse_compiler_error_line(const gchar *string, const gchar *dir,
 
 gboolean msgwin_goto_messages_file_line(gboolean focus_editor);
 
-void msgwin_add_page(const gchar *tab_label);
+void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir);
 
 G_END_DECLS
 

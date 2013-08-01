@@ -59,6 +59,8 @@
 #define MSGWIN_BUTTON_MIDDLE  2
 #define MSGWIN_BUTTON_RIGHT   3
 
+#define MESSAGES_DIR_KEY "messages_dir" 
+
 /* used for parse_file_line */
 typedef struct
 {
@@ -164,11 +166,13 @@ void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);
 	
 	/* do not open too many (XXX: add a setting for that) */
-	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 50) {
+	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 5) {
 		gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), 0); 
 	}
 
-	/* remember global values */
+	g_object_set_data_full(G_OBJECT(treeview), MESSAGES_DIR_KEY, g_strdup(messages_dir), g_free);
+    
+    /* remember global values */
 	g_free(msgwindow.messages_dir);
 	msgwindow.messages_dir = g_strdup(messages_dir);
 	msgwindow.tree_msg = treeview;
@@ -215,12 +219,12 @@ static gboolean on_msgwin_key_press_event(GtkWidget *widget, GdkEventKey *event,
 		{
 			case MSG_COMPILER:
 			{	/* key press in the compiler treeview */
-				msgwin_goto_compiler_file_line(enter_or_return);
+				msgwin_goto_compiler_file_line(widget, enter_or_return);
 				break;
 			}
 			case MSG_MESSAGE:
 			{	/* key press in the message treeview (results of 'Find usage') */
-				msgwin_goto_messages_file_line(enter_or_return);
+				msgwin_goto_messages_file_line(widget, enter_or_return);
 				break;
 			}
 		}
@@ -951,7 +955,7 @@ static gboolean goto_compiler_file_line(const gchar *filename, gint line, gboole
 }
 
 
-gboolean msgwin_goto_compiler_file_line(gboolean focus_editor)
+gboolean msgwin_goto_compiler_file_line(GtkWidget *widget, gboolean focus_editor)
 {
 	GtkTreeIter iter;
 	GtkTreeModel *model;
@@ -1293,8 +1297,6 @@ static void msgwin_parse_generic_line(const gchar *string, gchar **filename, gin
 	if (fields[0] != NULL)
 	{
 		*filename = g_strdup(fields[0]);
-		if (msgwindow.messages_dir != NULL)
-			make_absolute(filename, msgwindow.messages_dir);
 
 		/* now the line */
 		if (fields[1] != NULL)
@@ -1322,14 +1324,15 @@ static void msgwin_parse_generic_line(const gchar *string, gchar **filename, gin
 }
 
 
-gboolean msgwin_goto_messages_file_line(gboolean focus_editor)
+/* return TRUE if a message was found */
+gboolean msgwin_goto_messages_file_line(GtkWidget *widget, gboolean focus_editor)
 {
 	GtkTreeIter iter;
 	GtkTreeModel *model;
 	GtkTreeSelection *selection;
 	gboolean ret = FALSE;
-
-	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(msgwindow.tree_msg));
+    gchar *messages_dir = g_object_get_data(G_OBJECT(widget), MESSAGES_DIR_KEY);
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
 	if (gtk_tree_selection_get_selected(selection, &model, &iter))
 	{
 		gint line;
@@ -1353,28 +1356,25 @@ gboolean msgwin_goto_messages_file_line(gboolean focus_editor)
 
 		if (doc == NULL)
 		{
-			/* no supplied doc pointer, try to get one from either the filename or markup */
-			if (filename != NULL)
+			if (filename == NULL)
 			{
-				/* supplied filename */
-				if (msgwindow.messages_dir != NULL)
-					make_absolute(&filename, msgwindow.messages_dir);
-			}
-			else
-			{
-				/* try with a file:line parsing on the markup */
+				/* the filename was not provided try with a file:line parsing on the markup */
 				gchar *string;
 			
 				if (pango_parse_markup(markup, -1, 0, NULL, &string, NULL, NULL) == TRUE && string)
 				{
 					/* try with a file:line parsing */
 					msgwin_parse_generic_line(string, &filename, &line2);
+                    if (messages_dir != NULL)
+                        make_absolute(&filename, messages_dir);
 					g_free(string);
 				}
 			}
 
 			if (filename != NULL)
 			{
+				if (messages_dir != NULL)
+					make_absolute(&filename, messages_dir);
 				doc = document_open_file(filename, FALSE, NULL, NULL);
 			}
 		}
@@ -1412,12 +1412,12 @@ static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *
 		{
 			case MSG_COMPILER:
 			{	/* mouse click in the compiler treeview */
-				msgwin_goto_compiler_file_line(double_click);
+				msgwin_goto_compiler_file_line(widget, double_click);
 				break;
 			}
 			case MSG_MESSAGE:
 			{	/* mouse click in the message treeview (results of 'Find usage') */
-				msgwin_goto_messages_file_line(double_click);
+				msgwin_goto_messages_file_line(widget, double_click);
 				break;
 			}
 		}

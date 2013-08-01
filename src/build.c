@@ -1804,7 +1804,9 @@ static void kill_process(GPid *pid)
 
 static void on_build_next_error(GtkWidget *menuitem, gpointer user_data)
 {
-	if (ui_tree_view_find_next(GTK_TREE_VIEW(msgwindow.tree_compiler),
+    gint page = gtk_notebook_get_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook));
+	GtkWidget *treeview = gtk_notebook_get_nth_page(GTK_NOTEBOOK(msgwindow.msg_notebook), page);
+    if (ui_tree_view_find_next(GTK_TREE_VIEW(treeview),
 		msgwin_goto_compiler_file_line))
 	{
 		gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.notebook), MSG_COMPILER);

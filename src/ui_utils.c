@@ -1575,7 +1575,7 @@ static gboolean tree_view_find(GtkTreeView *treeview, TVMatchCallback cb, gboole
 	while (TRUE)
 	{
 		gtk_tree_selection_select_iter(treesel, &iter);
-		if (cb(FALSE))
+		if (cb(GTK_WIDGET(treeview), FALSE))
 			break;	/* found next message */
 
 		if (! tree_model_iter_get_next(model, &iter, down))

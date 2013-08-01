@@ -101,12 +101,12 @@ void msgwin_set_messages_dir(const gchar *messages_dir);
 
 void msgwin_menu_add_common_items(GtkMenu *menu);
 
-gboolean msgwin_goto_compiler_file_line(gboolean focus_editor);
+gboolean msgwin_goto_compiler_file_line(GtkWidget *widget, gboolean focus_editor);
 
 void msgwin_parse_compiler_error_line(const gchar *string, const gchar *dir,
 									  gchar **filename, gint *line);
 
-gboolean msgwin_goto_messages_file_line(gboolean focus_editor);
+gboolean msgwin_goto_messages_file_line(GtkWidget * widget, gboolean focus_editor);
 
 void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir);
 

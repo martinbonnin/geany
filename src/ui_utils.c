@@ -1623,6 +1623,15 @@ void ui_widget_modify_font_from_string(GtkWidget *widget, const gchar *str)
 	pango_font_description_free(pfd);
 }
 
+static void set_current_path(GtkWidget *cwdbtn, gpointer user_data)
+{
+	GtkEntry *entry = GTK_ENTRY(user_data);
+	gchar *dir = utils_get_current_file_dir_utf8();
+	if (dir == NULL) {
+		return;
+	}
+	gtk_entry_set_text(entry, dir);
+}
 
 /** Creates a @c GtkHBox with @a entry packed into it and an open button which runs a
  * file chooser, replacing entry text (if successful) with the path returned from the
@@ -1637,7 +1646,7 @@ void ui_widget_modify_font_from_string(GtkWidget *widget, const gchar *str)
 /* @see ui_setup_open_button_callback(). */
 GtkWidget *ui_path_box_new(const gchar *title, GtkFileChooserAction action, GtkEntry *entry)
 {
-	GtkWidget *vbox, *dirbtn, *openimg, *hbox, *path_entry;
+	GtkWidget *vbox, *dirbtn, *openimg, *hbox, *path_entry, *cwdbtn;
 
 	hbox = gtk_hbox_new(FALSE, 6);
 	path_entry = GTK_WIDGET(entry);
@@ -1658,7 +1667,11 @@ GtkWidget *ui_path_box_new(const gchar *title, GtkFileChooserAction action, GtkE
 	gtk_container_add(GTK_CONTAINER(dirbtn), openimg);
 	ui_setup_open_button_callback(dirbtn, title, action, entry);
 
+	cwdbtn = gtk_button_new_with_label("  .  ");
+	g_signal_connect(cwdbtn, "clicked", G_CALLBACK(set_current_path), entry);
+
 	gtk_box_pack_end(GTK_BOX(hbox), dirbtn, FALSE, FALSE, 0);
+	gtk_box_pack_end(GTK_BOX(hbox), cwdbtn, FALSE, FALSE, 0);
 	gtk_box_pack_end(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
 	return hbox;
 }

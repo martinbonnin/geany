@@ -95,8 +95,9 @@ typedef struct IOChannelData {
 	gchar *current_filename;
 	gchar *utf8_search_text;
 	gint utf8_search_text_len;
-	gchar *escaped_search_text;
 	MatchCounter *counter;
+	gboolean regexp;
+	gboolean case_sensitive;
 } IOChannelData;
 
 GeanySearchData search_data;
@@ -1742,8 +1743,9 @@ search_find_in_files(const gchar *utf8_search_text, const gchar *dir, const gcha
 		iod_out->enc = enc;
 		iod_out->utf8_search_text_len = strlen(utf8_search_text);
 		iod_out->utf8_search_text = g_strdup(utf8_search_text);
-		iod_out->escaped_search_text = g_markup_escape_text(utf8_search_text, iod_out->utf8_search_text_len);
-		iod_out->counter = g_new0(MatchCounter, 1);
+		iod_out->regexp = settings.fif_regexp;
+		iod_out->case_sensitive = settings.fif_case_sensitive;
+        iod_out->counter = g_new0(MatchCounter, 1);
 		iod_out->counter->refcount = 2; /* 1 for the io watch, 1 for the child_watch */
 
 		iod_err->enc = enc;
@@ -1850,8 +1852,6 @@ static gchar **search_get_argv(const gchar **argv_prefix, const gchar *dir)
 /*
  * Reads a GIOChannel until the next '\n'.
  * We cannot use g_io_channel_read_line() as grep uses the -Z option.
- * This function is blocking. It should not return FALSE unless we really
- * are end of file.
  *
  * @param line returned line. The caller must free it.
  * @param size the number of gchars inside line
@@ -1980,6 +1980,31 @@ static gchar *filename_to_markup(const gchar *filename)
 	return g_string_free(gs, FALSE);
 }
 
+/* basic implementation of strcastr */
+static char * strstr_case_insensitive (const char *haystack, const char *needle)
+{
+    gchar *n = g_ascii_strdown(needle, -1);
+    gchar *n2 = n;
+    if (strlen(needle) == 0) {
+        goto end;
+    }
+    while (*haystack) {
+        if (g_ascii_tolower(*haystack) == *n2) {
+            n2++;
+            if (*n2 == '\0') {
+                g_free(n);
+                return (char*)(haystack - (strlen(needle) - 1));
+            }
+        } else {
+            n2 = n;
+        }
+        haystack++;
+    }
+end:
+    g_free(n);
+    return NULL;
+}
+
 static gchar *result_to_markup(gchar *result, IOChannelData *iod, gint *lineno)
 {
 	GString *gs;
@@ -1987,7 +2012,8 @@ static gchar *result_to_markup(gchar *result, IOChannelData *iod, gint *lineno)
 	gchar *end;
 	gchar *tmp;
 	gchar *text;
-	
+	char *(*my_strstr)(const char *haystack, const char *needle);
+    
 	gs = g_string_new("  ");
 
 	*lineno = strtol(result, &end, 10);
@@ -2002,17 +2028,30 @@ static gchar *result_to_markup(gchar *result, IOChannelData *iod, gint *lineno)
 
 	g_string_append_printf(gs, "<span foreground=\"gray\">%d:</span>", *lineno);
 	
-	tmp = end;
-	while ((match = strstr(tmp, iod->utf8_search_text)))
-	{
-		/* XXX: do we need to validate utf8 here again ? */
-		text = g_markup_escape_text(tmp, match - tmp);
-		g_string_append(gs, text);
-		g_string_append_printf(gs, "<span background=\"#FFFF00\">%s</span>", iod->escaped_search_text);
-		tmp = match + iod->utf8_search_text_len;
-		g_free(text);
-	}
-	
+	if (iod->case_sensitive) {
+        my_strstr = strstr;
+    } else {
+        my_strstr = strstr_case_insensitive;
+    }
+    
+    if (iod->regexp == FALSE) {
+        /*
+         * we do this only for 'standard' grep. I don't know how to parse regex yet
+         */
+        tmp = end;
+        while ((match = my_strstr(tmp, iod->utf8_search_text)))
+        {
+            /* XXX: do we need to validate utf8 here again ? */
+            gchar *escaped_match = g_markup_escape_text(match, iod->utf8_search_text_len);
+            text = g_markup_escape_text(tmp, match - tmp);
+            g_string_append(gs, text);
+            g_string_append_printf(gs, "<span background=\"#FFFF00\">%s</span>", escaped_match);
+            tmp = match + iod->utf8_search_text_len;
+            g_free(text);
+            g_free(escaped_match);
+        }
+    }
+
 	text = g_markup_escape_text(tmp, -1);
 	g_string_append(gs, text);
 	g_free(text);
@@ -2136,10 +2175,6 @@ end:
 		if (iod->utf8_search_text)
 		{
 			g_free(iod->utf8_search_text);
-		}
-		if (iod->escaped_search_text)
-		{
-			g_free(iod->escaped_search_text);
 		}
 		g_free(iod);
 		return FALSE;

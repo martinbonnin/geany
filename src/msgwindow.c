@@ -166,7 +166,7 @@ void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);
 	
 	/* do not open too many (XXX: add a setting for that) */
-	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 5) {
+	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 50) {
 		gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), 0); 
 	}
 

@@ -338,6 +338,8 @@ GdkPixbuf *ui_get_mime_icon(const gchar *mime_type, GtkIconSize size);
 
 void ui_focus_current_document(void);
 
+GtkWidget *ui_tab_add_close_button(GtkWidget *hbox);
+
 G_END_DECLS
 
 #endif

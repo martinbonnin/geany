@@ -104,6 +104,17 @@ void msgwin_set_messages_dir(const gchar *messages_dir)
 	msgwindow.messages_dir = g_strdup(messages_dir);
 }
 
+static void
+notebook_msgwin_tab_close_clicked_cb(GtkButton *button, gpointer user_data)
+{
+	gint page = gtk_notebook_page_num(GTK_NOTEBOOK(msgwindow.msg_notebook),
+		GTK_WIDGET(user_data));
+
+	if (page != -1) {
+        gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), page);
+    }
+}
+
 void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 {
 	GtkWidget *window;
@@ -113,6 +124,8 @@ void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 	GtkCellRenderer *renderer;
 	GtkTreeViewColumn *column;
 	GtkTreeSelection *selection;
+    GtkWidget *hbox;
+	GtkWidget *btn;
 
 	window = gtk_widget_new(GTK_TYPE_SCROLLED_WINDOW, "visible", TRUE, 
 								"can-focus", TRUE, 
@@ -129,7 +142,14 @@ void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 								"label", tab_label,
 								NULL);
 
-	/* line, doc, doc_filename, markup */
+	hbox = gtk_hbox_new(FALSE, 2);
+
+	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
+
+	btn = ui_tab_add_close_button(hbox);
+    g_signal_connect(btn, "clicked", G_CALLBACK(notebook_msgwin_tab_close_clicked_cb), window);
+
+    /* line, doc, doc_filename, markup */
 	store = gtk_list_store_new(4, G_TYPE_INT, G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING);
 
 	gtk_tree_view_set_model(GTK_TREE_VIEW(treeview), GTK_TREE_MODEL(store));
@@ -160,7 +180,9 @@ void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
 	/*g_signal_connect(selection, "changed",G_CALLBACK(on_msg_tree_selection_changed), NULL);*/
 
 	gtk_container_add(GTK_CONTAINER(window), treeview);
-	gtk_notebook_append_page(GTK_NOTEBOOK(msgwindow.msg_notebook), window, label);
+
+   	gtk_widget_show_all(hbox);
+	gtk_notebook_append_page(GTK_NOTEBOOK(msgwindow.msg_notebook), window, hbox);
 
 	/* goto last page */
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);

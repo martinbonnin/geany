@@ -2757,3 +2757,33 @@ const gchar *ui_lookup_stock_label(const gchar *stock_id)
 	g_warning("No stock id '%s'!", stock_id);
 	return NULL;
 }
+
+static void notebook_tab_close_button_style_set(GtkWidget *btn, GtkRcStyle *prev_style,
+												gpointer data)
+{
+	gint w, h;
+
+	gtk_icon_size_lookup_for_settings(gtk_widget_get_settings(btn), GTK_ICON_SIZE_MENU, &w, &h);
+	gtk_widget_set_size_request(btn, w + 2, h + 2);
+}
+
+GtkWidget *ui_tab_add_close_button(GtkWidget *hbox)
+{
+    GtkWidget *image, *btn, *align;
+
+    btn = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
+    gtk_button_set_focus_on_click(GTK_BUTTON(btn), FALSE);
+    gtk_widget_set_name(btn, "geany-close-tab-button");
+
+    image = gtk_image_new_from_stock(GTK_STOCK_CLOSE, GTK_ICON_SIZE_MENU);
+    gtk_container_add(GTK_CONTAINER(btn), image);
+
+    align = gtk_alignment_new(1.0, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(align), btn);
+    gtk_box_pack_start(GTK_BOX(hbox), align, TRUE, TRUE, 0);
+
+    /* handle style modification to keep button small as possible even when theme change */
+    g_signal_connect(btn, "style-set", G_CALLBACK(notebook_tab_close_button_style_set), NULL);
+    return btn;
+}

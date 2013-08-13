@@ -1575,7 +1575,7 @@ static gboolean tree_view_find(GtkTreeView *treeview, TVMatchCallback cb, gboole
 	while (TRUE)
 	{
 		gtk_tree_selection_select_iter(treesel, &iter);
-		if (cb(FALSE))
+		if (cb(GTK_WIDGET(treeview), FALSE))
 			break;	/* found next message */
 
 		if (! tree_model_iter_get_next(model, &iter, down))
@@ -1623,6 +1623,15 @@ void ui_widget_modify_font_from_string(GtkWidget *widget, const gchar *str)
 	pango_font_description_free(pfd);
 }
 
+static void set_current_path(GtkWidget *cwdbtn, gpointer user_data)
+{
+	GtkEntry *entry = GTK_ENTRY(user_data);
+	gchar *dir = utils_get_current_file_dir_utf8();
+	if (dir == NULL) {
+		return;
+	}
+	gtk_entry_set_text(entry, dir);
+}
 
 /** Creates a @c GtkHBox with @a entry packed into it and an open button which runs a
  * file chooser, replacing entry text (if successful) with the path returned from the
@@ -1637,7 +1646,7 @@ void ui_widget_modify_font_from_string(GtkWidget *widget, const gchar *str)
 /* @see ui_setup_open_button_callback(). */
 GtkWidget *ui_path_box_new(const gchar *title, GtkFileChooserAction action, GtkEntry *entry)
 {
-	GtkWidget *vbox, *dirbtn, *openimg, *hbox, *path_entry;
+	GtkWidget *vbox, *dirbtn, *openimg, *hbox, *path_entry, *cwdbtn;
 
 	hbox = gtk_hbox_new(FALSE, 6);
 	path_entry = GTK_WIDGET(entry);
@@ -1658,7 +1667,11 @@ GtkWidget *ui_path_box_new(const gchar *title, GtkFileChooserAction action, GtkE
 	gtk_container_add(GTK_CONTAINER(dirbtn), openimg);
 	ui_setup_open_button_callback(dirbtn, title, action, entry);
 
+	cwdbtn = gtk_button_new_with_label("  .  ");
+	g_signal_connect(cwdbtn, "clicked", G_CALLBACK(set_current_path), entry);
+
 	gtk_box_pack_end(GTK_BOX(hbox), dirbtn, FALSE, FALSE, 0);
+	gtk_box_pack_end(GTK_BOX(hbox), cwdbtn, FALSE, FALSE, 0);
 	gtk_box_pack_end(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
 	return hbox;
 }
@@ -2743,4 +2756,34 @@ const gchar *ui_lookup_stock_label(const gchar *stock_id)
 
 	g_warning("No stock id '%s'!", stock_id);
 	return NULL;
+}
+
+static void notebook_tab_close_button_style_set(GtkWidget *btn, GtkRcStyle *prev_style,
+												gpointer data)
+{
+	gint w, h;
+
+	gtk_icon_size_lookup_for_settings(gtk_widget_get_settings(btn), GTK_ICON_SIZE_MENU, &w, &h);
+	gtk_widget_set_size_request(btn, w + 2, h + 2);
+}
+
+GtkWidget *ui_tab_add_close_button(GtkWidget *hbox)
+{
+    GtkWidget *image, *btn, *align;
+
+    btn = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
+    gtk_button_set_focus_on_click(GTK_BUTTON(btn), FALSE);
+    gtk_widget_set_name(btn, "geany-close-tab-button");
+
+    image = gtk_image_new_from_stock(GTK_STOCK_CLOSE, GTK_ICON_SIZE_MENU);
+    gtk_container_add(GTK_CONTAINER(btn), image);
+
+    align = gtk_alignment_new(1.0, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(align), btn);
+    gtk_box_pack_start(GTK_BOX(hbox), align, TRUE, TRUE, 0);
+
+    /* handle style modification to keep button small as possible even when theme change */
+    g_signal_connect(btn, "style-set", G_CALLBACK(notebook_tab_close_button_style_set), NULL);
+    return btn;
 }

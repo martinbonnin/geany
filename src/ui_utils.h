@@ -309,7 +309,7 @@ void ui_add_recent_project_file(const gchar *utf8_filename);
 void ui_update_tab_status(GeanyDocument *doc);
 
 
-typedef gboolean TVMatchCallback(gboolean);
+typedef gboolean TVMatchCallback(GtkWidget *, gboolean);
 
 gboolean ui_tree_view_find_next(GtkTreeView *treeview, TVMatchCallback cb);
 
@@ -337,6 +337,8 @@ gint ui_get_gtk_settings_integer(const gchar *property_name, gint default_value)
 GdkPixbuf *ui_get_mime_icon(const gchar *mime_type, GtkIconSize size);
 
 void ui_focus_current_document(void);
+
+GtkWidget *ui_tab_add_close_button(GtkWidget *hbox);
 
 G_END_DECLS
 

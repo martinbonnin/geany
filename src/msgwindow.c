@@ -50,6 +50,16 @@
 
 #include <gdk/gdkkeysyms.h>
 
+#define STORE_MSG_LINE_INDEX 			0
+#define STORE_MSG_DOC_INDEX 			1
+#define STORE_MSG_DOC_FILENAME_INDEX	2
+#define STORE_MSG_MARKUP_INDEX			3
+
+#define MSGWIN_BUTTON_LEFT    1
+#define MSGWIN_BUTTON_MIDDLE  2
+#define MSGWIN_BUTTON_RIGHT   3
+
+#define MESSAGES_DIR_KEY "messages_dir" 
 
 /* used for parse_file_line */
 typedef struct
@@ -65,13 +75,15 @@ ParseData;
 MessageWindow msgwindow;
 
 
-static void prepare_msg_tree_view(void);
 static void prepare_status_tree_view(void);
 static void prepare_compiler_tree_view(void);
 static GtkWidget *create_message_popup_menu(gint type);
 static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *event,
 																			gpointer user_data);
+static gboolean on_msgwin_key_press_event(GtkWidget *widget, GdkEventKey *event, gpointer data);
 static void on_scribble_populate(GtkTextView *textview, GtkMenu *arg1, gpointer user_data);
+void msgwin_msg_add_markup_no_validate(gint line, GeanyDocument *doc, const gchar *doc_filename,
+												const gchar *markup);
 
 
 void msgwin_show_hide_tabs(void)
@@ -92,19 +104,118 @@ void msgwin_set_messages_dir(const gchar *messages_dir)
 	msgwindow.messages_dir = g_strdup(messages_dir);
 }
 
+static void
+notebook_msgwin_tab_close_clicked_cb(GtkButton *button, gpointer user_data)
+{
+	gint page = gtk_notebook_page_num(GTK_NOTEBOOK(msgwindow.msg_notebook),
+		GTK_WIDGET(user_data));
+
+	if (page != -1) {
+        gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), page);
+    }
+}
+
+void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir)
+{
+	GtkWidget *window;
+	GtkWidget *treeview;
+	GtkWidget *label;
+	GtkListStore *store;
+	GtkCellRenderer *renderer;
+	GtkTreeViewColumn *column;
+	GtkTreeSelection *selection;
+    GtkWidget *hbox;
+	GtkWidget *btn;
+
+	window = gtk_widget_new(GTK_TYPE_SCROLLED_WINDOW, "visible", TRUE, 
+								"can-focus", TRUE, 
+								"hscrollbar-policy", GTK_POLICY_AUTOMATIC,
+								"vscrollbar-policy", GTK_POLICY_AUTOMATIC,
+								NULL);
+	treeview = gtk_widget_new(GTK_TYPE_TREE_VIEW, "visible", TRUE, 
+								"can-focus", FALSE,
+								"headers-visible", FALSE,
+								"rules_hint", TRUE,
+								NULL);
+	label = gtk_widget_new(GTK_TYPE_LABEL, "visible", TRUE, 
+								"can-focus", FALSE,
+								"label", tab_label,
+								NULL);
+
+	hbox = gtk_hbox_new(FALSE, 2);
+
+	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
+
+	btn = ui_tab_add_close_button(hbox);
+    g_signal_connect(btn, "clicked", G_CALLBACK(notebook_msgwin_tab_close_clicked_cb), window);
+
+    /* line, doc, doc_filename, markup */
+	store = gtk_list_store_new(4, G_TYPE_INT, G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING);
+
+	gtk_tree_view_set_model(GTK_TREE_VIEW(treeview), GTK_TREE_MODEL(store));
+	g_object_unref(store);
+
+	renderer = gtk_cell_renderer_text_new();
+	column = gtk_tree_view_column_new_with_attributes(NULL, renderer,
+		"markup", STORE_MSG_MARKUP_INDEX, NULL);
+	gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+
+	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(treeview), FALSE);
+
+	ui_widget_modify_font_from_string(treeview, interface_prefs.msgwin_font);
+
+	/* use button-release-event so the selection has changed
+	 * (connect_after button-press-event doesn't work) */
+	g_signal_connect(treeview, "button-release-event",
+					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+	/* for double-clicking only, after the first release */
+	g_signal_connect(treeview, "button-press-event",
+					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+	g_signal_connect(treeview, "key-press-event",
+		G_CALLBACK(on_msgwin_key_press_event), GINT_TO_POINTER(MSG_MESSAGE));
+
+	/* selection handling */
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeview));
+	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
+	/*g_signal_connect(selection, "changed",G_CALLBACK(on_msg_tree_selection_changed), NULL);*/
+
+	gtk_container_add(GTK_CONTAINER(window), treeview);
+
+   	gtk_widget_show_all(hbox);
+	gtk_notebook_append_page(GTK_NOTEBOOK(msgwindow.msg_notebook), window, hbox);
+
+	/* goto last page */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(msgwindow.msg_notebook), - 1);
+	
+	/* do not open too many (XXX: add a setting for that) */
+	if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(msgwindow.msg_notebook)) > 50) {
+		gtk_notebook_remove_page(GTK_NOTEBOOK(msgwindow.msg_notebook), 0); 
+	}
+
+	g_object_set_data_full(G_OBJECT(treeview), MESSAGES_DIR_KEY, g_strdup(messages_dir), g_free);
+    
+    /* remember global values */
+	g_free(msgwindow.messages_dir);
+	msgwindow.messages_dir = g_strdup(messages_dir);
+	msgwindow.tree_msg = treeview;
+	msgwindow.store_msg = store;
+}
 
 void msgwin_init(void)
 {
 	msgwindow.notebook = ui_lookup_widget(main_widgets.window, "notebook_info");
 	msgwindow.tree_status = ui_lookup_widget(main_widgets.window, "treeview3");
-	msgwindow.tree_msg = ui_lookup_widget(main_widgets.window, "treeview4");
+	msgwindow.msg_notebook = ui_lookup_widget(main_widgets.window, "notebook_msg");
 	msgwindow.tree_compiler = ui_lookup_widget(main_widgets.window, "treeview5");
 	msgwindow.scribble = ui_lookup_widget(main_widgets.window, "textview_scribble");
 	msgwindow.messages_dir = NULL;
 
 	prepare_status_tree_view();
-	prepare_msg_tree_view();
 	prepare_compiler_tree_view();
+
+	/* add the default message treeview */
+	msgwin_add_page(_("Messages"), NULL);
+
 	msgwindow.popup_status_menu = create_message_popup_menu(MSG_STATUS);
 	msgwindow.popup_msg_menu = create_message_popup_menu(MSG_MESSAGE);
 	msgwindow.popup_compiler_menu = create_message_popup_menu(MSG_COMPILER);
@@ -130,12 +241,12 @@ static gboolean on_msgwin_key_press_event(GtkWidget *widget, GdkEventKey *event,
 		{
 			case MSG_COMPILER:
 			{	/* key press in the compiler treeview */
-				msgwin_goto_compiler_file_line(enter_or_return);
+				msgwin_goto_compiler_file_line(widget, enter_or_return);
 				break;
 			}
 			case MSG_MESSAGE:
 			{	/* key press in the message treeview (results of 'Find usage') */
-				msgwin_goto_messages_file_line(enter_or_return);
+				msgwin_goto_messages_file_line(widget, enter_or_return);
 				break;
 			}
 		}
@@ -165,47 +276,6 @@ static void prepare_status_tree_view(void)
 	g_signal_connect(msgwindow.tree_status, "button-press-event",
 				G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_STATUS));
 }
-
-
-/* does some preparing things to the message list widget
- * (currently used for showing results of 'Find usage') */
-static void prepare_msg_tree_view(void)
-{
-	GtkCellRenderer *renderer;
-	GtkTreeViewColumn *column;
-	GtkTreeSelection *selection;
-
-	/* line, doc, fg, str */
-	msgwindow.store_msg = gtk_list_store_new(4, G_TYPE_INT, G_TYPE_POINTER,
-		GDK_TYPE_COLOR, G_TYPE_STRING);
-	gtk_tree_view_set_model(GTK_TREE_VIEW(msgwindow.tree_msg), GTK_TREE_MODEL(msgwindow.store_msg));
-	g_object_unref(msgwindow.store_msg);
-
-	renderer = gtk_cell_renderer_text_new();
-	column = gtk_tree_view_column_new_with_attributes(NULL, renderer,
-		"foreground-gdk", 2, "text", 3, NULL);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(msgwindow.tree_msg), column);
-
-	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(msgwindow.tree_msg), FALSE);
-
-	ui_widget_modify_font_from_string(msgwindow.tree_msg, interface_prefs.msgwin_font);
-
-	/* use button-release-event so the selection has changed
-	 * (connect_after button-press-event doesn't work) */
-	g_signal_connect(msgwindow.tree_msg, "button-release-event",
-					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-	/* for double-clicking only, after the first release */
-	g_signal_connect(msgwindow.tree_msg, "button-press-event",
-					G_CALLBACK(on_msgwin_button_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-	g_signal_connect(msgwindow.tree_msg, "key-press-event",
-		G_CALLBACK(on_msgwin_key_press_event), GINT_TO_POINTER(MSG_MESSAGE));
-
-	/* selection handling */
-	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(msgwindow.tree_msg));
-	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
-	/*g_signal_connect(selection, "changed",G_CALLBACK(on_msg_tree_selection_changed), NULL);*/
-}
-
 
 /* does some preparing things to the compiler list widget */
 static void prepare_compiler_tree_view(void)
@@ -249,13 +319,16 @@ static const GdkColor *get_color(gint msg_color)
 {
 	static const GdkColor dark_red = {0, 65535 / 2, 0, 0};
 	static const GdkColor blue = {0, 0, 0, 0xD000};	/* not too bright ;-) */
+	static const GdkColor black = {0, 0, 0, 0};
 
 	switch (msg_color)
 	{
 		case COLOR_RED: return &color_error;
 		case COLOR_DARK_RED: return &dark_red;
 		case COLOR_BLUE: return &blue;
-		default: return NULL;
+		case COLOR_BLACK:
+		default:
+			return &black;
 	}
 }
 
@@ -353,38 +426,234 @@ void msgwin_msg_add(gint msg_color, gint line, GeanyDocument *doc, const gchar *
 }
 
 
-/* adds string to the msg treeview */
+/**
+ *
+ *  @param string the string to display. If it is not utf8, it will be turned into
+ * a valid utf8 string at the price of losing some chars
+ **/
 void msgwin_msg_add_string(gint msg_color, gint line, GeanyDocument *doc, const gchar *string)
 {
-	GtkTreeIter iter;
 	const GdkColor *color = get_color(msg_color);
+	GString *gs;
+	gchar *escaped;
+	const gchar *utf8;
+
+	if (! g_utf8_validate(string, -1, NULL))
+		utf8 = utils_utf8_make_valid(string, NULL);
+	else
+		utf8 = string;
+
+	escaped = g_markup_escape_text(utf8, -1);
+	gs = g_string_new("");
+	g_string_printf(gs, "<span foreground=\"%s\">%s</span>", gdk_color_to_string(color), escaped);
+
+	msgwin_msg_add_markup_no_validate(line, doc, NULL, gs->str);
+
+	if (utf8 != string)
+	{
+		g_free((gchar*)utf8);
+	}
+	
+	g_string_free(gs, TRUE);
+	g_free(escaped);
+}
+
+typedef struct {
+	 GQueue *element_queue;
+	 GString *result_string;
+	 GString *text;
+	 gboolean done;
+	 gsize max_len;
+} ParserData;
+
+/*
+ * This is called on element boundaries so that we put back escape text
+ */
+static void append_text(ParserData *data)
+{
 	gchar *tmp;
+	const gchar *end;
+
+	if (data->text == NULL)
+		return;
+
+	/* in case we cut in the middle of a UTF8 char */
+	g_utf8_validate(data->text->str, data->text->len, &end);
+
+	tmp = g_markup_escape_text(data->text->str, (end - data->text->str));
+	g_string_append(data->result_string, tmp);
+
+	g_string_free(data->text, TRUE);
+	data->text = NULL;
+}
+
+static void parser_start_element (GMarkupParseContext *context,
+									const gchar         *element_name,
+									const gchar        **attribute_names,
+									const gchar        **attribute_values,
+									gpointer             user_data,
+									GError             **error)
+{
+	ParserData *data = (ParserData*)user_data;
+	gchar *element;
+
+	if (data->done)
+	{
+		return;
+	}
+
+	append_text(data);
+
+	g_string_append_printf(data->result_string, "<%s", element_name);
+	while (*attribute_names && *attribute_values)
+	{
+		g_string_append_printf(data->result_string, " %s=\"%s\"", *attribute_names, *attribute_values);
+
+		attribute_names++;
+		attribute_values++;
+	}
+	g_string_append(data->result_string, ">");
+	
+	element = g_strdup(element_name);
+	g_queue_push_tail(data->element_queue, element);
+}
+
+static void parser_end_element (GMarkupParseContext *context,
+								const gchar         *element_name,
+								gpointer             user_data,
+								GError             **error)
+{
+	ParserData *data = (ParserData*)user_data;
+	gchar *element;
+
+	if (data->done)
+		return;
+
+	append_text(data);
+	g_string_append_printf(data->result_string, "</%s>", element_name);
+
+	element = g_queue_pop_tail(data->element_queue);
+
+	g_assert(!strcmp(element, element_name));
+	g_free(element);
+}
+
+
+static void parser_text (GMarkupParseContext *context,
+						const gchar         *text,
+						gsize                text_len,
+						gpointer             user_data,
+						GError             **error)
+{
+	ParserData *data = (ParserData*)user_data;
+	gsize sofar;
+
+	if (data->done)
+		return;
+
+	if (data->text == NULL)
+		data->text = g_string_new("");
+	
+	sofar = data->text->len + data->result_string->len;
+	
+	if (text_len > data->max_len - sofar)
+	{
+		data->done = TRUE;
+		g_string_append_len(data->text, text, data->max_len - sofar);
+		append_text(data);
+	}
+	else
+	{
+		g_string_append_len(data->text, text, text_len);
+	}
+}
+
+static void parser_error (GMarkupParseContext *context,
+							GError              *error,
+							gpointer             user_data)
+{
+	ParserData *data = (ParserData*)user_data;
+	if (data->done)
+		return;
+
+	data->done = TRUE;
+}
+
+/*
+ *  Shorten a markup string. It will ensure that open tags are closed.
+ * It will also strip comments
+ *
+ *  @param markup the markup to shorten
+ *  @param len the maximum length of text of the resulting markup
+ * this does not take into account the tags themselves
+ */
+static gchar *shorten_markup(const gchar *markup, gsize len)
+{
+	GMarkupParser parser;
+	ParserData data;
+	GMarkupParseContext *context;
+	gchar *element;
+
+	parser.start_element = parser_start_element;
+	parser.end_element = parser_end_element;
+	parser.text = parser_text;
+	parser.error = parser_error;
+
+	data.element_queue = g_queue_new();
+	data.result_string = g_string_new("");
+	data.text = NULL;
+	data.done = FALSE;
+	data.max_len = len;
+
+	context = g_markup_parse_context_new(&parser, G_MARKUP_TREAT_CDATA_AS_TEXT, &data, NULL);
+	/* we need to enclose everything in a root element for the parser to parse it correctly*/
+	g_markup_parse_context_parse(context, "<span>", -1, NULL);
+	g_markup_parse_context_parse(context, markup, -1, NULL);
+	g_markup_parse_context_parse(context, "</span>", -1, NULL);
+	
+	/* now close the open tags */
+	while ((element = g_queue_pop_tail(data.element_queue)))
+	{
+		g_string_append_printf(data.result_string, "</%s>", element);
+		g_free(element);
+	}
+	
+	g_queue_free(data.element_queue);
+	g_markup_parse_context_free(context);
+
+	return g_string_free(data.result_string, FALSE);
+}
+
+/*
+ * XXX: having both doc *and* doc_filename seems a bit redundant to me.
+ */
+void msgwin_msg_add_markup_no_validate(gint line, GeanyDocument *doc, const gchar *doc_filename,
+												const gchar *utf8_msg)
+{
+	GtkTreeIter iter;
+	const gchar *tmp;
 	gsize len;
-	gchar *utf8_msg;
 
 	if (! ui_prefs.msgwindow_visible)
 		msgwin_show_hide(TRUE);
 
 	/* work around a strange problem when adding very long lines(greater than 4000 bytes)
-	 * cut the string to a maximum of 1024 bytes and discard the rest */
+	 * cut the string to a maximum of 1024 bytes and discard the rest.
+	 * the test for 'len > 1024' is a bit too permissive as it takes potential tags into account */
 	/* TODO: find the real cause for the display problem / if it is GtkTreeView file a bug report */
-	len = strlen(string);
+	len = strlen(utf8_msg);
 	if (len > 1024)
-		tmp = g_strndup(string, 1024);
+		tmp = shorten_markup(utf8_msg, 1024);
 	else
-		tmp = g_strdup(string);
-
-	if (! g_utf8_validate(tmp, -1, NULL))
-		utf8_msg = utils_get_utf8_from_locale(tmp);
-	else
-		utf8_msg = tmp;
-
+		tmp = utf8_msg;
+	
 	gtk_list_store_append(msgwindow.store_msg, &iter);
-	gtk_list_store_set(msgwindow.store_msg, &iter, 0, line, 1, doc, 2, color, 3, utf8_msg, -1);
+	gtk_list_store_set(msgwindow.store_msg, &iter, STORE_MSG_LINE_INDEX, line,
+						STORE_MSG_DOC_INDEX, doc, STORE_MSG_DOC_FILENAME_INDEX, doc_filename,
+						STORE_MSG_MARKUP_INDEX, tmp, -1);
 
-	g_free(tmp);
-	if (utf8_msg != tmp)
-		g_free(utf8_msg);
+	if (tmp != utf8_msg)
+		g_free((gchar*)tmp);
 }
 
 
@@ -446,6 +715,7 @@ on_compiler_treeview_copy_activate(GtkMenuItem *menuitem, gpointer user_data)
 	GtkTreeModel *model;
 	GtkTreeIter iter;
 	gint str_idx = 1;
+	gboolean needs_parse = FALSE;
 
 	switch (GPOINTER_TO_INT(user_data))
 	{
@@ -460,7 +730,8 @@ on_compiler_treeview_copy_activate(GtkMenuItem *menuitem, gpointer user_data)
 
 		case MSG_MESSAGE:
 		tv = msgwindow.tree_msg;
-		str_idx = 3;
+		str_idx = STORE_MSG_MARKUP_INDEX;
+		needs_parse = TRUE;
 		break;
 	}
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tv));
@@ -472,6 +743,16 @@ on_compiler_treeview_copy_activate(GtkMenuItem *menuitem, gpointer user_data)
 		gtk_tree_model_get(model, &iter, str_idx, &string, -1);
 		if (NZV(string))
 		{
+			if (needs_parse)
+			{
+				gchar *tmp;
+				if (pango_parse_markup(string, -1, 0, NULL, &tmp, NULL, NULL) == TRUE && tmp)
+				{
+					g_free(string);
+					string = tmp;
+				}
+			}
+			
 			gtk_clipboard_set_text(gtk_clipboard_get(gdk_atom_intern("CLIPBOARD", FALSE)),
 				string, -1);
 		}
@@ -487,6 +768,7 @@ static void on_compiler_treeview_copy_all_activate(GtkMenuItem *menuitem, gpoint
 	GString *str = g_string_new("");
 	gint str_idx = 1;
 	gboolean valid;
+	gboolean needs_parse = FALSE;
 
 	switch (GPOINTER_TO_INT(user_data))
 	{
@@ -501,7 +783,8 @@ static void on_compiler_treeview_copy_all_activate(GtkMenuItem *menuitem, gpoint
 
 		case MSG_MESSAGE:
 		store = msgwindow.store_msg;
-		str_idx = 3;
+		str_idx = STORE_MSG_MARKUP_INDEX;
+		needs_parse = TRUE;
 		break;
 	}
 
@@ -514,6 +797,15 @@ static void on_compiler_treeview_copy_all_activate(GtkMenuItem *menuitem, gpoint
 		gtk_tree_model_get(GTK_TREE_MODEL(store), &iter, str_idx, &line, -1);
 		if (NZV(line))
 		{
+			if (needs_parse)
+			{
+				gchar *tmp;
+				if (pango_parse_markup(line, -1, 0, NULL, &tmp, NULL, NULL) == TRUE && tmp)
+				{
+					g_free(line);
+					line = tmp;
+				}
+			}
 			g_string_append(str, line);
 			g_string_append_c(str, '\n');
 		}
@@ -685,7 +977,7 @@ static gboolean goto_compiler_file_line(const gchar *filename, gint line, gboole
 }
 
 
-gboolean msgwin_goto_compiler_file_line(gboolean focus_editor)
+gboolean msgwin_goto_compiler_file_line(GtkWidget *widget, gboolean focus_editor)
 {
 	GtkTreeIter iter;
 	GtkTreeModel *model;
@@ -1027,8 +1319,6 @@ static void msgwin_parse_generic_line(const gchar *string, gchar **filename, gin
 	if (fields[0] != NULL)
 	{
 		*filename = g_strdup(fields[0]);
-		if (msgwindow.messages_dir != NULL)
-			make_absolute(filename, msgwindow.messages_dir);
 
 		/* now the line */
 		if (fields[1] != NULL)
@@ -1056,49 +1346,77 @@ static void msgwin_parse_generic_line(const gchar *string, gchar **filename, gin
 }
 
 
-gboolean msgwin_goto_messages_file_line(gboolean focus_editor)
+/* return TRUE if a message was found */
+gboolean msgwin_goto_messages_file_line(GtkWidget *widget, gboolean focus_editor)
 {
 	GtkTreeIter iter;
 	GtkTreeModel *model;
 	GtkTreeSelection *selection;
 	gboolean ret = FALSE;
-
-	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(msgwindow.tree_msg));
+    gchar *messages_dir = g_object_get_data(G_OBJECT(widget), MESSAGES_DIR_KEY);
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
 	if (gtk_tree_selection_get_selected(selection, &model, &iter))
 	{
 		gint line;
-		gchar *string;
+		gchar *markup;
 		GeanyDocument *doc;
+		gchar *filename;
 		GeanyDocument *old_doc = document_get_current();
+		gint line2 = -1;
 
-		gtk_tree_model_get(model, &iter, 0, &line, 1, &doc, 3, &string, -1);
-		/* doc may have been closed, so check doc->index: */
-		if (line >= 0 && DOC_VALID(doc))
+		gtk_tree_model_get(model, &iter, STORE_MSG_LINE_INDEX, &line,
+							STORE_MSG_DOC_INDEX, &doc,
+							STORE_MSG_DOC_FILENAME_INDEX, &filename,
+							STORE_MSG_MARKUP_INDEX, &markup,
+							-1);
+		
+		if (doc != NULL && !doc->is_valid)
 		{
-			ret = navqueue_goto_line(old_doc, doc, line);
+			/* doc has been closed, do not use it */
+			doc = NULL;
+		}
+
+		if (doc == NULL)
+		{
+			if (filename == NULL)
+			{
+				/* the filename was not provided try with a file:line parsing on the markup */
+				gchar *string;
+			
+				if (pango_parse_markup(markup, -1, 0, NULL, &string, NULL, NULL) == TRUE && string)
+				{
+					/* try with a file:line parsing */
+					msgwin_parse_generic_line(string, &filename, &line2);
+                    if (messages_dir != NULL)
+                        make_absolute(&filename, messages_dir);
+					g_free(string);
+				}
+			}
+
+			if (filename != NULL)
+			{
+				if (messages_dir != NULL)
+					make_absolute(&filename, messages_dir);
+				doc = document_open_file(filename, FALSE, NULL, NULL);
+			}
+		}
+		
+		if (doc != NULL)
+		{
+			/* OK, we found a document */
+			if (line < 0 && line2 >= 0)
+			{
+				/* supplied line is invalid, use the parsed one */
+				line = line2;
+			}
+
+			ret = (line < 0) ? TRUE : navqueue_goto_line(old_doc, doc, line);
 			if (ret && focus_editor)
 				gtk_widget_grab_focus(GTK_WIDGET(doc->editor->sci));
 		}
-		else if (line < 0 && string != NULL)
-		{
-			gchar *filename;
 
-			/* try with a file:line parsing */
-			msgwin_parse_generic_line(string, &filename, &line);
-			if (filename != NULL)
-			{
-				/* use document_open_file to find an already open file, or open it in place */
-				doc = document_open_file(filename, FALSE, NULL, NULL);
-				if (doc != NULL)
-				{
-					ret = (line < 0) ? TRUE : navqueue_goto_line(old_doc, doc, line);
-					if (ret && focus_editor)
-						gtk_widget_grab_focus(GTK_WIDGET(doc->editor->sci));
-				}
-			}
-			g_free(filename);
-		}
-		g_free(string);
+		g_free(filename);
+		g_free(markup);
 	}
 	return ret;
 }
@@ -1110,25 +1428,25 @@ static gboolean on_msgwin_button_press_event(GtkWidget *widget, GdkEventButton *
 	/* user_data might be NULL, GPOINTER_TO_INT returns 0 if called with NULL */
 	gboolean double_click = event->type == GDK_2BUTTON_PRESS;
 
-	if (event->button == 1 && (event->type == GDK_BUTTON_RELEASE || double_click))
+	if (event->button == MSGWIN_BUTTON_LEFT && (event->type == GDK_BUTTON_RELEASE || double_click))
 	{
 		switch (GPOINTER_TO_INT(user_data))
 		{
 			case MSG_COMPILER:
 			{	/* mouse click in the compiler treeview */
-				msgwin_goto_compiler_file_line(double_click);
+				msgwin_goto_compiler_file_line(widget, double_click);
 				break;
 			}
 			case MSG_MESSAGE:
 			{	/* mouse click in the message treeview (results of 'Find usage') */
-				msgwin_goto_messages_file_line(double_click);
+				msgwin_goto_messages_file_line(widget, double_click);
 				break;
 			}
 		}
 		return double_click;	/* TRUE prevents message window re-focusing */
 	}
 
-	if (event->button == 3)
+	if (event->button == MSGWIN_BUTTON_RIGHT)
 	{	/* popupmenu to hide or clear the active treeview */
 		switch (GPOINTER_TO_INT(user_data))
 		{

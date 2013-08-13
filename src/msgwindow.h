@@ -62,6 +62,7 @@ typedef struct
 	GtkWidget		*popup_compiler_menu;
 	GtkWidget		*notebook;
 	gchar			*messages_dir;
+	GtkWidget		*msg_notebook;
 } MessageWindow;
 
 extern MessageWindow msgwindow;
@@ -82,6 +83,11 @@ void msgwin_msg_add(gint msg_color, gint line, GeanyDocument *doc, const gchar *
 
 void msgwin_msg_add_string(gint msg_color, gint line, GeanyDocument *doc, const gchar *string);
 
+void msgwin_msg_add_markup(gint line, GeanyDocument *doc, const gchar *markup);
+
+void msgwin_msg_add_markup_no_validate(gint line, GeanyDocument *doc, const gchar *doc_filename,
+												const gchar *markup);
+
 void msgwin_compiler_add(gint msg_color, const gchar *format, ...) G_GNUC_PRINTF (2, 3);
 
 void msgwin_compiler_add_string(gint msg_color, const gchar *msg);
@@ -95,12 +101,14 @@ void msgwin_set_messages_dir(const gchar *messages_dir);
 
 void msgwin_menu_add_common_items(GtkMenu *menu);
 
-gboolean msgwin_goto_compiler_file_line(gboolean focus_editor);
+gboolean msgwin_goto_compiler_file_line(GtkWidget *widget, gboolean focus_editor);
 
 void msgwin_parse_compiler_error_line(const gchar *string, const gchar *dir,
 									  gchar **filename, gint *line);
 
-gboolean msgwin_goto_messages_file_line(gboolean focus_editor);
+gboolean msgwin_goto_messages_file_line(GtkWidget * widget, gboolean focus_editor);
+
+void msgwin_add_page(const gchar *tab_label, const gchar *messages_dir);
 
 G_END_DECLS
 

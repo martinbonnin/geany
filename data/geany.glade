@@ -10108,19 +10108,11 @@
                           </packing>
                         </child>
                         <child>
-                          <object class="GtkScrolledWindow" id="scrolledwindow5">
+                          <object class="GtkNotebook" id="notebook_msg">
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
-                            <property name="hscrollbar_policy">automatic</property>
-                            <property name="vscrollbar_policy">automatic</property>
-                            <child>
-                              <object class="GtkTreeView" id="treeview4">
-                                <property name="visible">True</property>
-                                <property name="can_focus">True</property>
-                                <property name="headers_visible">False</property>
-                                <property name="rules_hint">True</property>
-                              </object>
-                            </child>
+		                    <property name="tab_pos">bottom</property>
+		                    <property name="scrollable">True</property>
                           </object>
                           <packing>
                             <property name="position">2</property>
